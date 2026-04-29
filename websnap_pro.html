@@ -545,6 +545,34 @@ async function fetchViaBackend(url) {
   }
 }
 
+// ── Detect captcha / verification pages ─────────────
+function detectCaptchaPage(html, url) {
+  const body = html.toLowerCase();
+  const patterns = [
+    // 中文验证
+    { re: /验证码|滑块验证|安全验证|人机验证|身份验证|请完成安全验证/i, msg: '滑块验证/安全验证页面', level: 'high' },
+    { re: /触发安全验证|安全检查中|浏览器安全检查|请开启javascript/i, msg: '安全验证页面', level: 'high' },
+    // Cloudflare
+    { re: /just a moment|cloudflare.*challenge|checking your browser/i, msg: 'Cloudflare 挑战页面', level: 'high' },
+    // English
+    { re: /captcha|verify you are human|security check|please confirm you are not a robot|enable javascript|enable cookies/i, msg: 'Captcha / human verification page', level: 'high' },
+    { re: /access denied|access blocked|your request has been blocked/i, msg: '访问被拒绝 / blocked', level: 'high' },
+  ];
+
+  for (const p of patterns) {
+    if (p.re.test(body)) {
+      return { detected: true, msg: p.msg, level: p.level };
+    }
+  }
+
+  // 启发式：页面内容过短（<5KB）且有脚本重定向 → 可能是验证页
+  if (html.length < 5120 && /window\.location|meta.*http-equiv.*refresh|setTimeout|challenge/i.test(body)) {
+    return { detected: true, msg: '页面内容过短，可能是验证/跳转页', level: 'medium' };
+  }
+
+  return { detected: false };
+}
+
 // ── Inject base tag & sanitize HTML ───────────────────
 function prepareHtml(html, originalUrl) {
   html = html.replace(/<base[^>]*>/gi, '');
@@ -737,6 +765,14 @@ async function startCapture() {
     }
 
     if (S.cancelled) { cleanup(); return; }
+
+    // ── 检测是否为验证/反爬页面 ──
+    const captchaCheck = detectCaptchaPage(html, url);
+    if (captchaCheck.detected) {
+      log(`⚠ 警告：后端获取到的可能是验证页面（${captchaCheck.msg}）`, 'warn');
+      log(`  截图结果可能不是目标网页的真实内容`, 'warn');
+      log(`  提示：部分网站有强反爬保护，可尝试移动版网址`, 'warn');
+    }
 
     // Step 3: Prepare HTML with base tag
     setProgress(25, '处理页面内容...', 'running');
