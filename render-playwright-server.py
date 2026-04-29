@@ -165,17 +165,11 @@ async def capture_async(url, vw, scale, wait):
             args=CHROMIUM_ARGS,
         )
 
-        # 优先让 Playwright 自动管理浏览器路径
-        try:
-            browser = await p.chromium.launch(**launch_kwargs)
-        except Exception:
-            # Playwright 默认路径失败，手动搜索系统上的 Chromium
-            exe = await find_chromium()
-            if exe:
-                launch_kwargs["executable_path"] = exe
-                browser = await p.chromium.launch(**launch_kwargs)
-            else:
-                raise
+        # 优先手动搜索 Chrome 二进制，找到后直接指定路径
+        exe = await find_chromium()
+        if exe:
+            launch_kwargs["executable_path"] = exe
+        browser = await p.chromium.launch(**launch_kwargs)
 
         # ── 创建上下文 ──
         ctx = await browser.new_context(
