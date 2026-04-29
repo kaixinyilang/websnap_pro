@@ -1027,6 +1027,11 @@ async function startCapture() {
   if (S.engine === 'playwright') {
     log(`使用 Playwright 真实浏览器引擎`, 'accent');
 
+    // 打开新窗口让用户直观看到页面
+    log(`在新窗口打开页面，请在那边完成验证`, 'info');
+    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(e) {}
+    log(`同时 Playwright 引擎开始截图...`, 'info');
+
     const result = await captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode);
 
     if (!result) {
