@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSnap Pro — 网页截图工具</title>
+  <meta name="description" content="WebSnap Pro 通用网页截图工具 · PNG / JPG / PDF">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Noto Sans SC', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe',
+              300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1',
+              600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- html2canvas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Noto Sans SC', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+    .gradient-primary {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+    }
+    .gradient-hero {
+      background: linear-gradient(135deg, #0f1117 0%, #161b27 40%, #1e2235 70%, #1a1f30 100%);
+    }
+    .nav-blur {
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(15,17,23,0.85);
+      border-bottom: 1px solid rgba(99,102,241,0.12);
+    }
+    .card-bg {
+      background: #1a1f30;
+      border: 1px solid #2a3050;
+      border-radius: 14px;
+      transition: all 0.3s ease;
+    }
+    .card-bg:hover { border-color: rgba(99,102,241,0.25); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white; padding: 0.7rem 2rem; border-radius: 10px;
+      font-weight: 600; transition: all 0.3s ease;
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      border: none; cursor: pointer; font-size: 0.95rem;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(99,102,241,0.4); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .btn-secondary {
+      background: #1e2235; color: #94a3b8; padding: 0.7rem 1.5rem;
+      border-radius: 10px; font-weight: 500; transition: all 0.2s ease;
+      border: 1px solid #2a3050; cursor: pointer; font-size: 0.9rem;
+    }
+    .btn-secondary:hover { border-color: #4f8ef7; color: #e2e8f0; }
+
+    .fmt-btn {
+      background: #161b27; border: 1.5px solid #2a3050; border-radius: 10px;
+      padding: 0.625rem 1.5rem; cursor: pointer; transition: all 0.25s ease;
+      text-align: center; min-width: 120px;
+    }
+    .fmt-btn:hover { border-color: #4f8ef7; }
+    .fmt-btn.active { border-color: #4f8ef7; background: #1e2235; }
+    .fmt-btn .main { font-weight: 700; font-size: 1.05rem; }
+    .fmt-btn .sub { font-size: 0.75rem; color: #4a5578; margin-top: 2px; }
+    .fmt-btn.active .main { color: #4f8ef7; }
+
+    .scale-btn {
+      background: #161b27; border: 1.5px solid #2a3050; border-radius: 8px;
+      padding: 0.5rem 1.25rem; cursor: pointer; transition: all 0.2s ease;
+      font-size: 0.9rem; color: #94a3b8;
+    }
+    .scale-btn:hover { border-color: #4f8ef7; }
+    .scale-btn.active { border-color: #4f8ef7; background: #1e2235; color: #4f8ef7; font-weight: 600; }
+
+    .ws-input {
+      background: #161b27; border: 1.5px solid #2a3050; border-radius: 8px;
+      padding: 0.6rem 1rem; color: #e2e8f0; font-size: 0.95rem;
+      width: 100%; outline: none; transition: border-color 0.2s ease; font-family: inherit;
+    }
+    .ws-input:focus { border-color: #4f8ef7; }
+    .ws-input::placeholder { color: #4a5578; }
+
+    .progress-track { background: #1e2235; border-radius: 6px; height: 8px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease, background 0.3s ease; width: 0%; background: #4f8ef7; }
+
+    .log-box {
+      background: #0f1117; border: 1px solid #2a3050; border-radius: 10px;
+      padding: 1rem; font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; line-height: 1.6; height: 200px;
+      overflow-y: auto; color: #4a5578;
+    }
+    .log-box .ts { color: #4a5578; }
+    .log-box .info { color: #94a3b8; }
+    .log-box .success { color: #34d399; }
+    .log-box .warn { color: #f59e0b; }
+    .log-box .error { color: #f87171; }
+    .log-box .accent { color: #4f8ef7; }
+    .log-box .dim { color: #4a5578; }
+
+    .indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; transition: background 0.3s ease; }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-box {
+      background: #1a1f30; border: 1px solid #2a3050; border-radius: 18px;
+      padding: 2.5rem 2rem 1.8rem; text-align: center;
+      max-width: 420px; width: 90%; animation: modalIn 0.3s ease;
+    }
+    @keyframes modalIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .preview-img { max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #2a3050; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a4060; }
+
+    @media (max-width: 640px) {
+      .fmt-btn { min-width: 90px; padding: 0.5rem 1rem; }
+      .fmt-btn .main { font-size: 0.9rem; }
+      .fmt-btn .sub { font-size: 0.65rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===================== Navigation ===================== -->
+<nav class="nav-blur fixed top-0 left-0 right-0 z-50">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6">
+    <div class="flex items-center justify-between h-16">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-lg gradient-primary flex items-center justify-center text-white font-bold text-sm">WS</div>
+        <div>
+          <span class="text-lg font-bold text-white">WebSnap<span class="text-indigo-400"> Pro</span></span>
+          <span class="hidden sm:inline text-xs text-gray-500 ml-2">v2.0 · 网页截图工具</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="#usage" class="hidden md:inline text-sm text-gray-400 hover:text-indigo-400 transition-colors">使用说明</a>
+        <span id="statusDot" class="indicator bg-gray-500" style="width:8px;height:8px;"></span>
+        <span id="statusText" class="text-sm text-gray-500">就绪</span>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ===================== Hero Header ===================== -->
+<header class="gradient-hero pt-24 pb-10 border-b border-indigo-900/20">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center">
+    <div class="inline-flex items-center gap-2 bg-indigo-500/10 rounded-full px-4 py-1.5 mb-5 border border-indigo-500/20">
+      <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+      <span class="text-indigo-300 text-xs">html2canvas 引擎 · 纯前端截图</span>
+    </div>
+    <h1 class="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-4 leading-tight">
+      <span class="block">通用网页全页截图工具</span>
+      <span class="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent text-2xl sm:text-3xl lg:text-4xl mt-2 block">
+        PNG · JPG · PDF
+      </span>
+    </h1>
+    <p class="text-gray-400 max-w-lg mx-auto text-sm sm:text-base">
+      输入网址，一键截取完整网页，支持高清 Retina、多种输出格式
+    </p>
+    <div class="mt-4 inline-flex items-center gap-2 bg-amber-500/10 rounded-full px-4 py-1.5 border border-amber-500/20">
+      <span class="text-amber-400 text-xs">⚡ 本地: node server.js &nbsp;·&nbsp; 部署到 Vercel: 自动生效</span>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== Main Tool ===================== -->
+<main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+
+  <!-- --- URL Input --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-lg">🔗</span>
+      <h2 class="text-base font-bold text-white">输入网址</h2>
+      <span class="text-xs text-gray-500 ml-auto">输入目标网页 URL</span>
+    </div>
+    <div class="flex gap-3">
+      <div class="flex-1 relative">
+        <input id="urlInput" type="text" class="ws-input" placeholder="https://example.com"
+               value="https://www.baidu.com">
+      </div>
+    </div>
+    <p class="text-xs text-gray-600 mt-2">支持 http(s):// 开头的网址 · 通过后端服务器代理获取</p>
+  </section>
+
+  <!-- --- Output Format --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-lg">🎨</span>
+      <h2 class="text-base font-bold text-white">输出格式</h2>
+    </div>
+
+    <div class="flex flex-wrap gap-3 mb-4" id="formatGroup">
+      <div class="fmt-btn active" data-fmt="png" onclick="selectFormat('png')">
+        <div class="main" style="color:#34d399">PNG</div>
+        <div class="sub">无损高清</div>
+      </div>
+      <div class="fmt-btn" data-fmt="jpg" onclick="selectFormat('jpg')">
+        <div class="main" style="color:#f59e0b">JPG</div>
+        <div class="sub">高压缩率</div>
+      </div>
+      <div class="fmt-btn" data-fmt="pdf" onclick="selectFormat('pdf')">
+        <div class="main" style="color:#4f8ef7">PDF</div>
+        <div class="sub">可打印文档</div>
+      </div>
+    </div>
+
+    <!-- JPG Quality -->
+    <div id="jpgOptions" class="hidden bg-[#161b27] rounded-xl p-4 border border-[#2a3050] mb-2">
+      <div class="flex items-center gap-4 flex-wrap">
+        <span class="text-sm text-gray-400">JPG 质量</span>
+        <span class="text-xs text-gray-600">低</span>
+        <input id="jpgQuality" type="range" min="10" max="100" value="90" class="flex-1 min-w-[160px] accent-indigo-500">
+        <span class="text-xs text-gray-600">高</span>
+        <span id="jpgQualityVal" class="text-sm text-indigo-400 font-bold w-8 text-right">90</span>
+      </div>
+    </div>
+
+    <!-- PDF Options -->
+    <div id="pdfOptions" class="hidden bg-[#161b27] rounded-xl p-4 border border-[#2a3050] mb-2">
+      <div class="flex flex-wrap items-center gap-4">
+        <span class="text-sm text-gray-400">PDF 分页</span>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" name="pdfMode" value="a4" checked class="accent-indigo-500">
+          <span class="text-sm text-gray-300">A4 自动分页</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" name="pdfMode" value="a3" class="accent-indigo-500">
+          <span class="text-sm text-gray-300">A3 自动分页</span>
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="radio" name="pdfMode" value="full" class="accent-indigo-500">
+          <span class="text-sm text-gray-300">长图单页</span>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Parameters --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-lg">⚙</span>
+      <h2 class="text-base font-bold text-white">截图参数</h2>
+    </div>
+
+    <div class="grid sm:grid-cols-3 gap-5">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">截图宽度 (px)</label>
+        <p class="text-xs text-gray-600 mb-2">建议 1280~1920</p>
+        <input id="vwInput" type="number" value="1280" class="ws-input" min="320" max="3840">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">额外等待 (秒)</label>
+        <p class="text-xs text-gray-600 mb-2">图片多可适当增加</p>
+        <input id="waitInput" type="number" value="3" class="ws-input" min="0" max="60">
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">分辨率倍数</label>
+        <p class="text-xs text-gray-600 mb-2">2× = Retina 高清</p>
+        <div class="flex gap-2" id="scaleGroup">
+          <div class="scale-btn" data-scale="1" onclick="selectScale(1)">× 1 标准</div>
+          <div class="scale-btn active" data-scale="2" onclick="selectScale(2)">× 2 高清</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- --- Actions --- -->
+  <section class="flex flex-wrap gap-3">
+    <button id="startBtn" class="btn-primary text-base px-8 py-3" onclick="startCapture()">
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      开始截图
+    </button>
+    <button id="cancelBtn" class="btn-secondary" onclick="cancelCapture()">取消</button>
+    <button id="clearBtn" class="btn-secondary text-xs ml-auto" onclick="clearAll()">清空重置</button>
+  </section>
+
+  <!-- --- Progress --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2.5">
+        <span id="progDot" class="indicator bg-gray-500"></span>
+        <span id="progText" class="text-sm text-gray-400">就绪，等待截图任务</span>
+      </div>
+      <span id="progPct" class="text-sm font-bold text-indigo-400"></span>
+    </div>
+    <div class="progress-track">
+      <div id="progressFill" class="progress-fill"></div>
+    </div>
+  </section>
+
+  <!-- --- Log --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <span class="text-lg">📋</span>
+        <h2 class="text-base font-bold text-white">运行日志</h2>
+        <span class="text-xs text-gray-600">实时输出</span>
+      </div>
+      <button onclick="clearLog()" class="text-xs text-gray-500 hover:text-gray-300 transition-colors">清空</button>
+    </div>
+    <div id="logBox" class="log-box">
+      <div><span class="ts">[--:--:--]</span> <span class="dim">就绪，等待截图任务</span></div>
+    </div>
+  </section>
+
+  <!-- --- Preview --- -->
+  <section id="previewSection" class="card-bg p-5 sm:p-6 hidden">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-lg">🖼</span>
+      <h2 class="text-base font-bold text-white">截图预览</h2>
+      <span id="previewDim" class="text-xs text-gray-500 ml-auto"></span>
+    </div>
+    <div class="flex justify-center">
+      <img id="previewImg" class="preview-img" alt="截图预览">
+    </div>
+  </section>
+
+  <div class="h-8"></div>
+</main>
+
+<!-- ===================== Usage Guide ===================== -->
+<section id="usage" class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+  <div class="card-bg p-6 sm:p-8">
+    <div class="text-center mb-8">
+      <h2 class="text-2xl sm:text-3xl font-black text-white mb-3">📖 使用说明</h2>
+      <p class="text-gray-500 text-sm">基于后端代理 + html2canvas 引擎，可靠获取任意网页</p>
+    </div>
+
+    <div class="grid sm:grid-cols-3 gap-5 text-center">
+      <div class="bg-[#161b27] rounded-xl p-6 border border-[#2a3050]">
+        <div class="w-11 h-11 rounded-full gradient-primary text-white flex items-center justify-center font-bold text-lg mx-auto mb-3">1</div>
+        <h3 class="font-bold text-white mb-2">启动后端服务器</h3>
+        <p class="text-sm text-gray-400">本地运行: <code class="text-indigo-300">node server.js</code> · 部署到 Vercel 自动生效</p>
+      </div>
+      <div class="bg-[#161b27] rounded-xl p-6 border border-[#2a3050]">
+        <div class="w-11 h-11 rounded-full gradient-primary text-white flex items-center justify-center font-bold text-lg mx-auto mb-3">2</div>
+        <h3 class="font-bold text-white mb-2">输入网址配置参数</h3>
+        <p class="text-sm text-gray-400">填入目标网址，选择格式、截图宽度等参数</p>
+      </div>
+      <div class="bg-[#161b27] rounded-xl p-6 border border-[#2a3050]">
+        <div class="w-11 h-11 rounded-full gradient-primary text-white flex items-center justify-center font-bold text-lg mx-auto mb-3">3</div>
+        <h3 class="font-bold text-white mb-2">一键截图</h3>
+        <p class="text-sm text-gray-400">点击开始截图，自动渲染并导出下载</p>
+      </div>
+    </div>
+
+    <div class="mt-6 bg-[#161b27] rounded-xl p-5 border border-[#2a3050]">
+      <h4 class="text-sm font-bold text-white mb-3">🚀 部署到 Vercel（推荐，免费，无需管理服务器）</h4>
+      <div class="space-y-2 text-sm">
+        <div class="bg-[#0f1117] rounded-lg p-3 font-mono text-xs">
+          <div class="text-gray-500"># 1. 推送到 GitHub</div>
+          <div class="text-green-400">git push</div>
+          <div class="text-gray-500 mt-2"># 2. 在 vercel.com 导入仓库，自动部署</div>
+          <div class="text-gray-500"># 3. 部署完成，直接可用 ✅</div>
+        </div>
+        <p class="text-gray-400 text-xs mt-2">Vercel 会自动运行 <code class="text-indigo-300">api/fetch.js</code> 做后端代理，无需自己搭服务器。</p>
+      </div>
+    </div>
+
+    <div class="mt-4 bg-[#161b27] rounded-xl p-5 border border-[#2a3050]">
+      <h4 class="text-sm font-bold text-white mb-3">💻 本地开发（需要 Node.js）</h4>
+      <div class="space-y-2 text-sm">
+        <div class="bg-[#0f1117] rounded-lg p-3 font-mono text-xs">
+          <div class="text-gray-500"># 安装依赖</div>
+          <div class="text-green-400">npm install</div>
+          <div class="text-gray-500 mt-1"># 启动</div>
+          <div class="text-green-400">node server.js</div>
+        </div>
+        <p class="text-gray-500 mt-2 text-xs">本地访问 <span class="text-indigo-400">http://localhost:3000</span></p>
+      </div>
+    </div>
+
+    <div class="mt-4 bg-[#161b27] rounded-xl p-5 border border-[#2a3050]">
+      <h4 class="text-sm font-bold text-white mb-3">🐍 Python 备用方案</h4>
+      <div class="space-y-2 text-sm">
+        <div class="bg-[#0f1117] rounded-lg p-3 font-mono text-xs">
+          <div class="text-gray-500"># 安装依赖</div>
+          <div class="text-green-400">pip install flask requests</div>
+          <div class="text-gray-500 mt-1"># 启动</div>
+          <div class="text-green-400">python server.py</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== Footer ===================== -->
+<footer class="border-t border-[#2a3050] py-8">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center">
+    <div class="flex items-center justify-center gap-2 mb-3">
+      <div class="w-7 h-7 rounded-md gradient-primary flex items-center justify-center text-white font-bold text-xs">WS</div>
+      <span class="text-sm font-bold text-white">WebSnap<span class="text-indigo-400"> Pro</span></span>
+    </div>
+    <p class="text-xs text-gray-600">基于 html2canvas 引擎 · 网页截图工具 · PNG / JPG / PDF</p>
+    <p class="text-xs text-gray-700 mt-1">部署到 Vercel 自动启用后端代理 · 本地运行需 node server.js</p>
+    <p class="text-xs text-gray-700 mt-1">&copy; 2025 WebSnap Pro</p>
+  </div>
+</footer>
+
+<!-- ===================== Success Modal ===================== -->
+<div id="successModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="text-5xl mb-4">✅</div>
+    <h3 class="text-xl font-bold text-white mb-2">截图成功！</h3>
+    <p id="modalFileName" class="text-sm text-gray-400 mb-1"></p>
+    <p id="modalDims" class="text-xs text-gray-600 mb-5"></p>
+    <div class="flex justify-center gap-3 flex-wrap">
+      <button class="btn-primary text-sm px-5 py-2.5" onclick="downloadScreenshot()">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        下载截图
+      </button>
+      <button class="btn-secondary text-sm" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== Hidden iframe for proxy rendering ===================== -->
+<div id="snapWrapper">
+  <iframe id="snapIframe" sandbox="allow-same-origin allow-scripts"></iframe>
+</div>
+
+<!-- ===================== JavaScript ===================== -->
+<script>
+// ── State ──────────────────────────────────────────────
+const S = {
+  running: false, cancelled: false,
+  format: 'png', scale: 2,
+  screenshotBlob: null, fileName: '', dims: '',
+};
+
+// ── Backend proxy ─────────────────────────────────────
+const BACKEND = {
+  name: '后端代理',
+  url: '/api/fetch',
+};
+
+// ── Format Selection ───────────────────────────────────
+function selectFormat(fmt) {
+  S.format = fmt;
+  document.querySelectorAll('.fmt-btn').forEach(el => el.classList.toggle('active', el.dataset.fmt === fmt));
+  document.getElementById('jpgOptions').classList.toggle('hidden', fmt !== 'jpg');
+  document.getElementById('pdfOptions').classList.toggle('hidden', fmt !== 'pdf');
+}
+
+document.getElementById('jpgQuality').addEventListener('input', function() {
+  document.getElementById('jpgQualityVal').textContent = this.value;
+});
+
+function selectScale(s) {
+  S.scale = s;
+  document.querySelectorAll('.scale-btn').forEach(el => el.classList.toggle('active', parseInt(el.dataset.scale) === s));
+}
+
+// ── Log ────────────────────────────────────────────────
+function log(msg, tag = 'info') {
+  const box = document.getElementById('logBox');
+  const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const cls = { info:'info', success:'success', warn:'warn', error:'error', accent:'accent', dim:'dim' }[tag]||'info';
+  box.innerHTML += `<div><span class="ts">[${ts}]</span> <span class="${cls}">${escapeHtml(msg)}</span></div>`;
+  box.scrollTop = box.scrollHeight;
+}
+function escapeHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function clearLog() { document.getElementById('logBox').innerHTML = ''; }
+
+// ── Progress ───────────────────────────────────────────
+function setProgress(pct, msg, stateType = 'running') {
+  const colors = { running:'#4f8ef7', done:'#34d399', error:'#f87171', warn:'#f59e0b', idle:'#6b7280' };
+  const fill = document.getElementById('progressFill');
+  fill.style.width = pct + '%'; fill.style.background = colors[stateType] || colors.running;
+  document.getElementById('progText').textContent = msg;
+  document.getElementById('progPct').textContent = pct > 0 ? pct + '%' : '';
+  document.getElementById('progDot').style.background = colors[stateType] || colors.idle;
+  document.getElementById('statusDot').style.background = colors[stateType] || colors.idle;
+  const st = document.getElementById('statusText');
+  const labels = { running:'运行中', done:'完成', error:'错误', warn:'已取消', idle:'就绪' };
+  st.textContent = labels[stateType] || '就绪';
+  st.style.color = colors[stateType] || colors.idle;
+}
+
+// ── Default filename ───────────────────────────────────
+function defaultFileName() {
+  const url = document.getElementById('urlInput').value.trim() || 'screenshot';
+  const slug = url.replace(/https?:\/\//, '').replace(/[^\w\-]/g, '_').slice(0, 36) || 'page';
+  const ts = new Date().toISOString().slice(0,19).replace(/[T:-]/g, '');
+  return `${slug}_${ts}.${S.format}`;
+}
+
+// ── URL normalization ──────────────────────────────────
+function normalizeUrl(raw) {
+  raw = raw.trim();
+  if (!raw) return '';
+  if (!raw.startsWith('http://') && !raw.startsWith('https://')) raw = 'https://' + raw;
+  return raw;
+}
+
+// ── Fetch via backend ─────────────────────────────────
+async function fetchViaBackend(url) {
+  const apiUrl = `${BACKEND.url}?url=${encodeURIComponent(url)}`;
+  log(`通过后端代理获取页面...`, 'info');
+  try {
+    const resp = await fetch(apiUrl, { signal: AbortSignal.timeout(30000) });
+    const data = await resp.json();
+    if (!resp.ok || data.error) {
+      log(`后端代理返回错误: ${data.error || resp.status}`, 'error');
+      return null;
+    }
+    log(`✓ 成功获取页面 (${(data.size/1024).toFixed(0)}KB, ${data.elapsed}ms)`, 'success');
+    return data.html;
+  } catch (e) {
+    log(`后端代理请求失败：${e.message}`, 'error');
+    return null;
+  }
+}
+
+// ── Inject base tag & sanitize HTML ───────────────────
+function prepareHtml(html, originalUrl) {
+  html = html.replace(/<base[^>]*>/gi, '');
+  const baseTag = `<base href="${originalUrl.replace(/\/$/, '')}/">`;
+  if (/<head>/i.test(html)) {
+    html = html.replace(/<head>/i, '<head>' + baseTag);
+  } else {
+    html = baseTag + html;
+  }
+  return html;
+}
+
+// ── Render HTML in iframe & capture ────────────────────
+async function renderAndCapture(html, width, scale) {
+  const iframe = document.getElementById('snapIframe');
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('页面渲染超时 (45s)')), 45000);
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+
+    iframe.onload = async () => {
+      try {
+        const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const iWin = iframe.contentWindow;
+
+        if (!iDoc.body) {
+          clearTimeout(timeout); URL.revokeObjectURL(blobUrl);
+          reject(new Error('iframe 内容为空'));
+          return;
+        }
+
+        log('页面已加载到渲染沙箱', 'info');
+        setProgress(40, '等待页面资源加载...', 'running');
+
+        const imgs = Array.from(iDoc.querySelectorAll('img'));
+        log(`等待 ${imgs.length} 张图片加载...`, 'info');
+
+        const imgPromises = imgs.map(img => {
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+          if (img.src && !img.src.startsWith('http') && !img.src.startsWith('data:')) {
+            const baseUrl = document.getElementById('urlInput').value.trim();
+            img.src = new URL(img.getAttribute('src') || '', baseUrl).href;
+          }
+          return new Promise(r => {
+            img.onload = r; img.onerror = r;
+            setTimeout(r, 8000);
+          });
+        });
+        await Promise.all(imgPromises);
+        log('图片加载完成', 'info');
+
+        iDoc.documentElement.style.width = width + 'px';
+        iDoc.body.style.width = width + 'px';
+        iDoc.body.style.margin = '0';
+        iDoc.body.style.padding = '0';
+        iDoc.documentElement.style.overflowX = 'hidden';
+
+        const fullHeight = Math.max(
+          iDoc.documentElement.scrollHeight,
+          iDoc.body.scrollHeight,
+          iDoc.documentElement.offsetHeight
+        );
+
+        log(`页面尺寸: ${width}×${fullHeight}px`, 'info');
+        setProgress(55, `页面 ${width}×${fullHeight}px，渲染中...`, 'running');
+
+        const waitSec = parseInt(document.getElementById('waitInput').value) || 3;
+        if (waitSec > 0) {
+          log(`额外等待 ${waitSec}s 确保渲染完成...`, 'info');
+          await sleep(waitSec * 1000);
+        }
+
+        setProgress(65, '滚动触发懒加载...', 'running');
+        const steps = 15;
+        for (let i = 0; i <= steps; i++) {
+          iWin.scrollTo(0, (fullHeight * i) / steps);
+          await sleep(100);
+        }
+        iWin.scrollTo(0, 0);
+        await sleep(500);
+
+        if (S.cancelled) { clearTimeout(timeout); URL.revokeObjectURL(blobUrl); resolve(null); return; }
+
+        setProgress(75, 'html2canvas 截图渲染中...', 'running');
+        log('html2canvas 开始渲染...', 'info');
+
+        iframe.style.width = width + 'px';
+        iframe.style.height = fullHeight + 'px';
+        await sleep(300);
+
+        const canvas = await html2canvas(iDoc.body, {
+          width: width,
+          height: fullHeight,
+          scale: scale,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          windowWidth: width,
+          windowHeight: fullHeight,
+        });
+
+        clearTimeout(timeout);
+        URL.revokeObjectURL(blobUrl);
+        log(`✓ html2canvas 渲染完成 (${canvas.width}×${canvas.height}px)`, 'success');
+        resolve(canvas);
+
+      } catch (e) {
+        clearTimeout(timeout);
+        URL.revokeObjectURL(blobUrl);
+        reject(e);
+      }
+    };
+
+    iframe.onerror = () => {
+      clearTimeout(timeout);
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error('iframe 加载失败'));
+    };
+
+    iframe.src = blobUrl;
+  });
+}
+
+// ── Main capture flow ──────────────────────────────────
+async function startCapture() {
+  if (S.running) { log('已有截图任务正在运行', 'warn'); return; }
+  S.cancelled = false;
+
+  const urlRaw = document.getElementById('urlInput').value.trim();
+  if (!urlRaw) { log('请先输入网址', 'error'); alert('请先输入网址'); return; }
+
+  let vw, wait;
+  try {
+    vw = parseInt(document.getElementById('vwInput').value);
+    wait = parseInt(document.getElementById('waitInput').value);
+    if (isNaN(vw)||isNaN(wait)) throw Error();
+  } catch {
+    log('截图宽度/等待时间必须为整数', 'error'); alert('参数错误'); return;
+  }
+  if (vw < 320) { log('截图宽度不能小于 320px', 'error'); alert('截图宽度不能小于 320px'); return; }
+
+  const url = normalizeUrl(urlRaw);
+  const fmt = S.format;
+  const quality = parseInt(document.getElementById('jpgQuality').value);
+  const pdfMode = document.querySelector('input[name="pdfMode"]:checked')?.value || 'a4';
+  const scale = S.scale;
+
+  S.running = true;
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('previewSection').classList.add('hidden');
+
+  log(`═══ 开始截图 ═══`, 'accent');
+  log(`网址: ${url}`, 'info');
+  log(`格式:${fmt.toUpperCase()}  宽:${vw}px  等待:${wait}s  倍数:×${scale}`, 'dim');
+  setProgress(5, '初始化...', 'running');
+
+  try {
+    // Step 1: Check backend server
+    setProgress(5, '连接后端服务...', 'running');
+    log('连接后端服务...', 'info');
+    let serverOk = false;
+    try {
+      const healthResp = await fetch('/api/health', { signal: AbortSignal.timeout(3000) });
+      serverOk = healthResp.ok;
+    } catch {}
+    if (!serverOk) {
+      log('未检测到 /api/health（Vercel 环境跳过此检查）', 'warn');
+    } else {
+      log('✓ 后端服务器连接正常', 'success');
+    }
+
+    if (S.cancelled) { cleanup(); return; }
+
+    // Step 2: Fetch page HTML via backend proxy
+    setProgress(15, '通过后端代理获取页面...', 'running');
+
+    const html = await fetchViaBackend(url);
+
+    if (!html) {
+      throw new Error(
+        '后端代理无法获取该页面。\n\n' +
+        '可能原因：\n' +
+        '1. 后端服务器未启动，请运行: node server.js\n' +
+        '2. 目标网站无法访问或存在反爬机制\n' +
+        '3. 网址不存在或输入有误\n\n' +
+        '请确认后端服务器正在运行，或检查网址是否正确。'
+      );
+    }
+
+    if (S.cancelled) { cleanup(); return; }
+
+    // Step 3: Prepare HTML with base tag
+    setProgress(25, '处理页面内容...', 'running');
+    html = prepareHtml(html, url);
+
+    // Step 4: Render in iframe sandbox and capture
+    const canvas = await renderAndCapture(html, vw, scale);
+
+    if (S.cancelled || !canvas) { cleanup(); return; }
+
+    // Step 5: Generate output
+    setProgress(80, '生成输出文件...', 'running');
+    log('生成输出文件...', 'info');
+
+    const imgData = canvas.toDataURL('image/png');
+    let outputBlob;
+
+    if (fmt === 'png') {
+      outputBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    } else if (fmt === 'jpg') {
+      const jc = document.createElement('canvas');
+      jc.width = canvas.width; jc.height = canvas.height;
+      const ctx = jc.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,jc.width,jc.height);
+      ctx.drawImage(canvas, 0, 0);
+      outputBlob = await new Promise(r => jc.toBlob(r, 'image/jpeg', quality/100));
+    } else if (fmt === 'pdf') {
+      const { jsPDF } = window.jspdf;
+      const iw = canvas.width, ih = canvas.height;
+      let pdf;
+      if (pdfMode === 'a4') {
+        const pw=210, ph=297, sx=pw/(iw*0.2646);
+        let y=0, pn=1; pdf = new jsPDF('p','mm','a4');
+        while (y < ih*sx) {
+          if (pn>1) pdf.addPage();
+          const stripH = Math.min(ph, ih*sx - y);
+          const sp = stripH/sx;
+          const sc = document.createElement('canvas');
+          sc.width=iw; sc.height=Math.ceil(sp);
+          const sxCtx=sc.getContext('2d');
+          sxCtx.drawImage(canvas,0,y/sx,iw,sp,0,0,iw,sp);
+          pdf.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',0,ph-stripH,pw,stripH);
+          y+=stripH; pn++;
+        }
+      } else if (pdfMode === 'a3') {
+        const pw=297, ph=420, sx=pw/(iw*0.2646);
+        let y=0, pn=1; pdf = new jsPDF('p','mm','a3');
+        while (y < ih*sx) {
+          if (pn>1) pdf.addPage();
+          const stripH = Math.min(ph, ih*sx - y);
+          const sp = stripH/sx;
+          const sc = document.createElement('canvas');
+          sc.width=iw; sc.height=Math.ceil(sp);
+          const sxCtx=sc.getContext('2d');
+          sxCtx.drawImage(canvas,0,y/sx,iw,sp,0,0,iw,sp);
+          pdf.addImage(sc.toDataURL('image/jpeg',0.92),'JPEG',0,ph-stripH,pw,stripH);
+          y+=stripH; pn++;
+        }
+      } else {
+        pdf = new jsPDF({orientation:iw>ih?'l':'p',unit:'px',format:[iw,ih]});
+        pdf.addImage(imgData,'PNG',0,0,iw,ih);
+      }
+      outputBlob = pdf.output('blob');
+    }
+
+    if (S.cancelled) { cleanup(); return; }
+
+    S.screenshotBlob = outputBlob;
+    const dimStr = fmt==='pdf' ? `PDF (${pdfMode.toUpperCase()})` : `${canvas.width}×${canvas.height}px`;
+    const sz = outputBlob.size / 1024 / 1024;
+    S.fileName = defaultFileName();
+    S.dims = `${dimStr}  ·  ${sz.toFixed(1)} MB`;
+
+    document.getElementById('previewImg').src = imgData;
+    document.getElementById('previewDim').textContent = dimStr;
+    document.getElementById('previewSection').classList.remove('hidden');
+
+    document.getElementById('modalFileName').textContent = S.fileName;
+    document.getElementById('modalDims').textContent = S.dims;
+    document.getElementById('successModal').classList.add('show');
+
+    setProgress(100, `完成！${dimStr}  ${sz.toFixed(1)} MB`, 'done');
+    log(`✓ 保存成功：${S.fileName}`, 'success');
+    log(`  ${dimStr}  ·  ${sz.toFixed(1)} MB`, 'dim');
+
+  } catch (err) {
+    setProgress(0, '截图失败', 'error');
+    log(`✗ 错误：${err.message}`, 'error');
+    console.error(err);
+    alert(`截图失败：\n\n${err.message}`);
+  } finally {
+    S.running = false;
+    document.getElementById('startBtn').disabled = false;
+  }
+}
+
+function cleanup() {
+  S.running = false; S.cancelled = false;
+  document.getElementById('startBtn').disabled = false;
+}
+
+function cancelCapture() {
+  if (S.running) {
+    S.cancelled = true;
+    setProgress(0, '已取消', 'warn');
+    log('用户取消操作', 'warn');
+    S.running = false;
+    document.getElementById('startBtn').disabled = false;
+  }
+}
+
+function closeModal() { document.getElementById('successModal').classList.remove('show'); }
+document.getElementById('successModal').addEventListener('click', function(e) { if (e.target===this) closeModal(); });
+
+function downloadScreenshot() {
+  if (!S.screenshotBlob) return;
+  const url = URL.createObjectURL(S.screenshotBlob);
+  const a = document.createElement('a');
+  a.href = url; a.download = S.fileName || defaultFileName();
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  closeModal();
+}
+
+function clearAll() {
+  document.getElementById('urlInput').value = 'https://www.baidu.com';
+  document.getElementById('vwInput').value = '1280';
+  document.getElementById('waitInput').value = '3';
+  selectFormat('png'); selectScale(2);
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progText').textContent = '就绪，等待截图任务';
+  document.getElementById('progPct').textContent = '';
+  document.getElementById('progDot').style.background = '#6b7280';
+  document.getElementById('previewSection').classList.add('hidden');
+  document.getElementById('statusDot').style.background = '#6b7280';
+  document.getElementById('statusText').textContent = '就绪';
+  document.getElementById('statusText').style.color = '#6b7280';
+  S.screenshotBlob = null; S.cancelled = false; S.running = false;
+  clearLog(); log('已重置所有设置', 'dim');
+  document.getElementById('startBtn').disabled = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  log('WebSnap Pro v2.0 已加载', 'accent');
+  log('输入网址 → 点击"开始截图" → 自动下载', 'info');
+  log('使用后端代理获取页面内容，支持 PNG/JPG/PDF', 'dim');
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "websnap-pro",
+  "version": "2.0.0",
+  "description": "WebSnap Pro — 网页截图工具（后端代理服务器 / Web Screenshot Tool with Backend Proxy）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/fetch.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "websnap_pro.html",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    { "src": "/api/fetch", "dest": "/api/fetch.js" },
+    { "src": "/", "dest": "/websnap_pro.html" }
+  ]
+}
