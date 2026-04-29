@@ -667,7 +667,14 @@ async function _doCapture(body, sessionId) {
 
     if (!resp.ok) {
       let detail = '';
-      try { const e = await resp.json(); detail = e.detail || ''; } catch {}
+      try {
+        const e = await resp.json();
+        if (Array.isArray(e.detail)) {
+          detail = e.detail.map(d => d.msg || d.loc?.join('.') || '').join(', ');
+        } else {
+          detail = e.detail || '';
+        }
+      } catch {}
       throw new Error(`Playwright 引擎返回 ${resp.status}${detail ? ': ' + detail : ''}`);
     }
 

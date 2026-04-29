@@ -60,7 +60,7 @@ def clean_old_sessions():
 
 # ── 请求参数 ─────────────────────────────────────────────
 class CaptureRequest(BaseModel):
-    url: str
+    url: str = ""
     format: str = "png"
     viewport_width: int = 1280
     scale: int = 2
