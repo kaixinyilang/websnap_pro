@@ -1,0 +1,8 @@
+# WebSnap Pro — Playwright Engine 依赖
+# 用于 Render / Railway 云部署
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+playwright>=1.40.0
+pillow>=10.0.0
+reportlab>=4.0.0

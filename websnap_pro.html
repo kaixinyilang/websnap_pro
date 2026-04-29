@@ -215,6 +215,33 @@
     <p class="text-xs text-gray-600 mt-2">支持 http(s):// 开头的网址 · 通过后端服务器代理获取</p>
   </section>
 
+  <!-- --- Engine Mode --- -->
+  <section class="card-bg p-5 sm:p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-lg">⚡</span>
+      <h2 class="text-base font-bold text-white">截图引擎</h2>
+      <span class="text-xs text-gray-500 ml-auto">Vercel 云端 = 轻量代理  ·  Playwright = 真实浏览器</span>
+    </div>
+    <div class="flex gap-3 mb-4" id="engineGroup">
+      <div class="fmt-btn active" data-engine="vercel" onclick="selectEngine('vercel')">
+        <div class="main" style="color:#34d399">☁ Vercel</div>
+        <div class="sub">云端代理 · 零配置</div>
+      </div>
+      <div class="fmt-btn" data-engine="playwright" onclick="selectEngine('playwright')">
+        <div class="main" style="color:#a78bfa">🎯 Playwright</div>
+        <div class="sub">真实浏览器 · 过反爬</div>
+      </div>
+    </div>
+    <div id="playwrightUrlGroup" class="hidden bg-[#161b27] rounded-xl p-4 border border-[#2a3050] mb-2">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-sm text-gray-400">Playwright 后端地址</span>
+        <span class="text-xs text-gray-600">部署到 Render / Railway 后获得的 URL</span>
+      </div>
+      <input id="playwrightUrl" type="text" class="ws-input" placeholder="https://your-app.onrender.com" value="http://localhost:8000">
+      <p class="text-xs text-gray-600 mt-2">本地测试: http://localhost:8000  ·  云端部署后替换为实际地址</p>
+    </div>
+  </section>
+
   <!-- --- Output Format --- -->
   <section class="card-bg p-5 sm:p-6">
     <div class="flex items-center gap-2 mb-4">
@@ -457,7 +484,7 @@
 // ── State ──────────────────────────────────────────────
 const S = {
   running: false, cancelled: false,
-  format: 'png', scale: 2,
+  format: 'png', scale: 2, engine: 'vercel',
   screenshotBlob: null, fileName: '', dims: '',
 };
 
@@ -482,6 +509,14 @@ document.getElementById('jpgQuality').addEventListener('input', function() {
 function selectScale(s) {
   S.scale = s;
   document.querySelectorAll('.scale-btn').forEach(el => el.classList.toggle('active', parseInt(el.dataset.scale) === s));
+}
+
+// ── Engine Selection ──────────────────────────────────
+function selectEngine(engine) {
+  S.engine = engine;
+  document.querySelectorAll('#engineGroup .fmt-btn').forEach(el => el.classList.toggle('active', el.dataset.engine === engine));
+  document.getElementById('playwrightUrlGroup').classList.toggle('hidden', engine !== 'playwright');
+  log(`切换到 ${engine === 'vercel' ? 'Vercel 云端代理' : 'Playwright 真实浏览器引擎'}`, 'info');
 }
 
 // ── Log ────────────────────────────────────────────────
@@ -541,6 +576,75 @@ async function fetchViaBackend(url) {
     return data.html;
   } catch (e) {
     log(`后端代理请求失败：${e.message}`, 'error');
+    return null;
+  }
+}
+
+// ── Capture via Playwright backend ─────────────────
+async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode) {
+  const baseUrl = document.getElementById('playwrightUrl').value.trim().replace(/\/$/, '');
+  if (!baseUrl) {
+    log('请先填写 Playwright 后端地址', 'error');
+    return null;
+  }
+
+  log(`连接 Playwright 引擎: ${baseUrl}`, 'info');
+
+  // 健康检查
+  try {
+    const h = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
+    const hd = await h.json();
+    if (hd.status !== 'ok') throw Error('not ok');
+    log(`✓ Playwright 引擎连接成功`, 'success');
+  } catch (e) {
+    log(`✗ 无法连接 Playwright 后端: ${e.message}`, 'error');
+    log(`  请确认后端已启动或地址是否正确`, 'warn');
+    return null;
+  }
+
+  if (S.cancelled) return null;
+
+  log('发送截图请求到 Playwright 引擎...', 'info');
+  setProgress(30, 'Playwright 正在渲染页面...', 'running');
+
+  try {
+    const resp = await fetch(`${baseUrl}/api/capture`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(120000),
+      body: JSON.stringify({
+        url: url,
+        format: fmt,
+        viewport_width: vw,
+        scale: scale,
+        wait: wait,
+        quality: quality,
+        pdf_mode: pdfMode,
+      }),
+    });
+
+    if (!resp.ok) {
+      let detail = '';
+      try { const e = await resp.json(); detail = e.detail || ''; } catch {}
+      throw new Error(`Playwright 引擎返回 ${resp.status}${detail ? ': ' + detail : ''}`);
+    }
+
+    const contentDisposition = resp.headers.get('Content-Disposition') || '';
+    const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+    const fileName = fileNameMatch ? fileNameMatch[1] : `screenshot_${Date.now()}.${fmt}`;
+
+    setProgress(80, '接收截图数据...', 'running');
+    const blob = await resp.blob();
+    const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
+
+    log(`✓ Playwright 截图完成 (${sizeMB} MB)`, 'success');
+
+    return { blob, fileName, sizeMB };
+  } catch (e) {
+    log(`Playwright 截图失败: ${e.message}`, 'error');
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      log('  请求超时（120s），页面可能过大或后端负载过高', 'warn');
+    }
     return null;
   }
 }
@@ -731,6 +835,47 @@ async function startCapture() {
   log(`格式:${fmt.toUpperCase()}  宽:${vw}px  等待:${wait}s  倍数:×${scale}`, 'dim');
   setProgress(5, '初始化...', 'running');
 
+  // ── Playwright 模式 ────────────────────────────────
+  if (S.engine === 'playwright') {
+    log(`使用 Playwright 真实浏览器引擎`, 'accent');
+
+    const result = await captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode);
+
+    if (!result) {
+      setProgress(0, 'Playwright 截图失败', 'error');
+      S.running = false;
+      document.getElementById('startBtn').disabled = false;
+      return;
+    }
+
+    // 保存结果
+    S.screenshotBlob = result.blob;
+    S.fileName = result.fileName;
+    S.dims = `${result.sizeMB} MB`;
+
+    // 图片预览（仅 PNG/JPG）
+    if (fmt === 'png' || fmt === 'jpg') {
+      const previewUrl = URL.createObjectURL(result.blob);
+      document.getElementById('previewImg').src = previewUrl;
+      document.getElementById('previewDim').textContent = result.dims;
+      document.getElementById('previewSection').classList.remove('hidden');
+    } else {
+      document.getElementById('previewSection').classList.add('hidden');
+    }
+
+    setProgress(100, `完成！${result.sizeMB} MB`, 'done');
+    log(`✓ 保存成功：${result.fileName}`, 'success');
+    log(`  ${result.sizeMB} MB`, 'dim');
+
+    document.getElementById('successModal').classList.add('show');
+    document.getElementById('modalFileName').textContent = result.fileName;
+    document.getElementById('modalDims').textContent = result.dims;
+
+    S.running = false;
+    document.getElementById('startBtn').disabled = false;
+    return;
+  }
+
   try {
     // Step 1: Check backend server
     setProgress(5, '连接后端服务...', 'running');
@@ -898,8 +1043,10 @@ function downloadScreenshot() {
 }
 
 function clearAll() {
+  S.engine = 'vercel';
+  document.querySelectorAll('#engineGroup .fmt-btn').forEach(el => el.classList.toggle('active', el.dataset.engine === 'vercel'));
+  document.getElementById('playwrightUrlGroup').classList.add('hidden');
   document.getElementById('urlInput').value = 'https://www.baidu.com';
-  document.getElementById('vwInput').value = '1280';
   document.getElementById('waitInput').value = '3';
   selectFormat('png'); selectScale(2);
   document.getElementById('progressFill').style.width = '0%';
