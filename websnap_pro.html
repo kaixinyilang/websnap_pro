@@ -340,6 +340,13 @@
 
   <!-- --- Browser Preview --- -->
   <section id="browserPreview">
+    <div id="browserToolbar" style="display:none; background:#1a1f30; padding:6px 12px; border-bottom:1px solid #2a3050; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span class="text-xs text-gray-400">预览</span>
+      <span id="browserUrl" class="text-xs text-gray-500 truncate" style="max-width:300px;"></span>
+      <div class="flex-1"></div>
+      <button class="btn-primary text-xs px-3 py-1.5" onclick="screenCapture()" style="font-size:0.75rem;">截取画面</button>
+      <button class="btn-secondary text-xs px-2 py-1.5" onclick="browserToggle()" style="font-size:0.7rem;">隐藏</button>
+    </div>
     <iframe id="browserFrame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
     <div id="browserPlaceholder">
       <span>输入网址，点击"开始截图"后将在此显示页面预览</span>
@@ -841,6 +848,88 @@ async function captchaFinish() {
   document.getElementById('startBtn').disabled = false;
 }
 
+// ── Browser Preview Controls ─────────────────────────
+
+function showBrowserPreview(url) {
+  const p = document.getElementById('browserPreview');
+  document.getElementById('browserUrl').textContent = url;
+  document.getElementById('browserToolbar').style.display = 'flex';
+  document.getElementById('browserPlaceholder').style.display = 'none';
+  document.getElementById('browserFrame').style.display = 'block';
+  p.classList.add('show');
+}
+
+function browserToggle() {
+  const f = document.getElementById('browserFrame');
+  if (f.style.display === 'none') {
+    f.style.display = 'block';
+    document.getElementById('browserToolbar').style.display = 'flex';
+    document.getElementById('browserPlaceholder').style.display = 'none';
+  } else {
+    f.style.display = 'none';
+    document.getElementById('browserToolbar').style.display = 'none';
+    document.getElementById('browserPlaceholder').style.display = 'flex';
+  }
+}
+
+// ── Screen Capture（getDisplayMedia） ──────────────────
+
+async function screenCapture() {
+  try {
+    log('请求屏幕捕获权限，请选择要截图的窗口...', 'info');
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { mediaSource: 'screen' },
+      audio: false,
+    });
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error('无法获取视频轨道');
+
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await new Promise(r => { video.onloadedmetadata = r; });
+    await video.play();
+
+    // 等待一帧确保画面稳定
+    await sleep(200);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    track.stop();
+    video.remove();
+
+    // 生成下载
+    canvas.toBlob(blob => {
+      S.screenshotBlob = blob;
+      const fmt = S.format;
+      const slug = (document.getElementById('urlInput').value || 'capture').replace(/https?:\/\//, '').replace(/[^\w\-]/g, '_').slice(0, 30);
+      const ts = new Date().toISOString().slice(0,19).replace(/[T:-]/g, '');
+      S.fileName = `${slug}_${ts}.${fmt}`;
+      S.dims = `${canvas.width}×${canvas.height}px  ·  ${(blob.size/1024/1024).toFixed(1)} MB`;
+
+      const imgData = canvas.toDataURL('image/png');
+      document.getElementById('previewImg').src = imgData;
+      document.getElementById('previewDim').textContent = S.dims;
+      document.getElementById('previewSection').classList.remove('hidden');
+      document.getElementById('successModal').classList.add('show');
+      document.getElementById('modalFileName').textContent = S.fileName;
+      document.getElementById('modalDims').textContent = S.dims;
+
+      log(`✓ 屏幕捕获完成 (${S.dims})`, 'success');
+      setProgress(100, `完成！${canvas.width}×${canvas.height}`, 'done');
+    }, fmt === 'jpg' ? 'image/jpeg' : 'image/png', fmt === 'jpg' ? parseInt(document.getElementById('jpgQuality').value)/100 : 1);
+
+  } catch (e) {
+    if (e.name === 'AbortError' || e.message.includes('Permission')) {
+      log('用户取消了屏幕捕获', 'warn');
+    } else {
+      log(`屏幕捕获失败: ${e.message}`, 'error');
+    }
+  }
+}
+
 function captchaClose() {
   document.getElementById('captchaModal').classList.remove('show');
   S._captchaSessionId = null;
@@ -1031,61 +1120,26 @@ async function startCapture() {
   document.getElementById('previewSection').classList.add('hidden');
 
   // 显示浏览器预览区域
-  const browserPrev = document.getElementById('browserPreview');
+  showBrowserPreview(url);
   const browserFrame = document.getElementById('browserFrame');
-  browserPrev.classList.add('show');
-  document.getElementById('browserPlaceholder').style.display = 'none';
-  browserFrame.style.display = 'block';
 
   log(`═══ 开始截图 ═══`, 'accent');
   log(`网址: ${url}`, 'info');
   log(`格式:${fmt.toUpperCase()}  宽:${vw}px  等待:${wait}s  倍数:×${scale}`, 'dim');
   setProgress(5, '初始化...', 'running');
 
-  // ── Playwright 模式 ────────────────────────────────
+  // ── 直接浏览模式（Playwright 引擎） ──────────────────
   if (S.engine === 'playwright') {
-    log(`使用 Playwright 真实浏览器引擎`, 'accent');
+    log(`直接浏览模式：页面将在预览区中加载`, 'accent');
+    log(`你可以在页面中滑动、点击、手动过验证`, 'info');
+    log(`完成后点击预览区上方"截取画面"按钮即可`, 'info');
 
-    // 浏览器预览直接加载目标网址（跨域但用户可看到并交互）
-    log(`浏览器预览加载页面中...`, 'info');
+    // 浏览器预览直接加载目标网址
     browserFrame.src = url;
     browserFrame.style.height = '60vh';
 
-    log(`Playwright 引擎开始后台截图...`, 'info');
-
-    const result = await captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode);
-
-    if (!result) {
-      // null 可能是等待用户验证（弹窗已打开），不标记失败
-      if (S._captchaSessionId) return;
-      setProgress(0, 'Playwright 截图失败', 'error');
-      S.running = false;
-      document.getElementById('startBtn').disabled = false;
-      return;
-    }
-
-    // 保存结果
-    S.screenshotBlob = result.blob;
-    S.fileName = result.fileName;
-    S.dims = `${result.sizeMB} MB`;
-
-    // 图片预览（仅 PNG/JPG）
-    if (fmt === 'png' || fmt === 'jpg') {
-      const previewUrl = URL.createObjectURL(result.blob);
-      document.getElementById('previewImg').src = previewUrl;
-      document.getElementById('previewDim').textContent = result.dims;
-      document.getElementById('previewSection').classList.remove('hidden');
-    } else {
-      document.getElementById('previewSection').classList.add('hidden');
-    }
-
-    setProgress(100, `完成！${result.sizeMB} MB`, 'done');
-    log(`✓ 保存成功：${result.fileName}`, 'success');
-    log(`  ${result.sizeMB} MB`, 'dim');
-
-    document.getElementById('successModal').classList.add('show');
-    document.getElementById('modalFileName').textContent = result.fileName;
-    document.getElementById('modalDims').textContent = result.dims;
+    setProgress(10, '页面已加载到预览区，可交互操作', 'running');
+    log(`✓ 页面已加载，请在预览区完成操作后点击"截取画面"`, 'success');
 
     S.running = false;
     document.getElementById('startBtn').disabled = false;
