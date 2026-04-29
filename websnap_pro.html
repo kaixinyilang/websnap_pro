@@ -140,11 +140,6 @@
     @keyframes modalIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .preview-img { max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #2a3050; }
 
-    .sandbox-container {
-      position: fixed; left: -9999px; top: 0;
-      overflow: visible;
-    }
-
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
@@ -154,20 +149,6 @@
       .fmt-btn { min-width: 90px; padding: 0.5rem 1rem; }
       .fmt-btn .main { font-size: 0.9rem; }
       .fmt-btn .sub { font-size: 0.65rem; }
-    }
-
-    /* 截图沙箱样式 */
-    #snapWrapper {
-      position: fixed;
-      left: -9999px;
-      top: 0;
-      z-index: -1;
-      transform-origin: top left;
-    }
-    #snapWrapper iframe {
-      border: none;
-      width: 100%;
-      height: 100%;
     }
   </style>
 </head>
@@ -481,7 +462,6 @@ const S = {
 };
 
 // ── Backend proxy ─────────────────────────────────────
-// 通过本地/服务器后端代理获取页面，无 CORS 限制
 const BACKEND = {
   name: '后端代理',
   url: '/api/fetch',
@@ -495,12 +475,10 @@ function selectFormat(fmt) {
   document.getElementById('pdfOptions').classList.toggle('hidden', fmt !== 'pdf');
 }
 
-// JPG quality slider
 document.getElementById('jpgQuality').addEventListener('input', function() {
   document.getElementById('jpgQualityVal').textContent = this.value;
 });
 
-// ── Scale Selection ────────────────────────────────────
 function selectScale(s) {
   S.scale = s;
   document.querySelectorAll('.scale-btn').forEach(el => el.classList.toggle('active', parseInt(el.dataset.scale) === s));
@@ -567,11 +545,9 @@ async function fetchViaBackend(url) {
   }
 }
 
-// ── Inject base & sanitize HTML ────────────────────────
+// ── Inject base tag & sanitize HTML ───────────────────
 function prepareHtml(html, originalUrl) {
-  // Remove any existing base tags
   html = html.replace(/<base[^>]*>/gi, '');
-  // Inject base tag right after <head> or at the start
   const baseTag = `<base href="${originalUrl.replace(/\/$/, '')}/">`;
   if (/<head>/i.test(html)) {
     html = html.replace(/<head>/i, '<head>' + baseTag);
@@ -588,7 +564,6 @@ async function renderAndCapture(html, width, scale) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('页面渲染超时 (45s)')), 45000);
 
-    // Create blob URL and load into iframe
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const blobUrl = URL.createObjectURL(blob);
 
@@ -597,7 +572,6 @@ async function renderAndCapture(html, width, scale) {
         const iDoc = iframe.contentDocument || iframe.contentWindow.document;
         const iWin = iframe.contentWindow;
 
-        // Wait for the iframe body to exist
         if (!iDoc.body) {
           clearTimeout(timeout); URL.revokeObjectURL(blobUrl);
           reject(new Error('iframe 内容为空'));
@@ -607,13 +581,11 @@ async function renderAndCapture(html, width, scale) {
         log('页面已加载到渲染沙箱', 'info');
         setProgress(40, '等待页面资源加载...', 'running');
 
-        // Wait for images inside iframe
         const imgs = Array.from(iDoc.querySelectorAll('img'));
         log(`等待 ${imgs.length} 张图片加载...`, 'info');
 
         const imgPromises = imgs.map(img => {
           if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-          // Fix relative src
           if (img.src && !img.src.startsWith('http') && !img.src.startsWith('data:')) {
             const baseUrl = document.getElementById('urlInput').value.trim();
             img.src = new URL(img.getAttribute('src') || '', baseUrl).href;
@@ -626,15 +598,12 @@ async function renderAndCapture(html, width, scale) {
         await Promise.all(imgPromises);
         log('图片加载完成', 'info');
 
-        // Set viewport width on the iframe body
         iDoc.documentElement.style.width = width + 'px';
         iDoc.body.style.width = width + 'px';
         iDoc.body.style.margin = '0';
         iDoc.body.style.padding = '0';
-        // Prevent scrollbars - we want full page
         iDoc.documentElement.style.overflowX = 'hidden';
 
-        // Get full scroll height
         const fullHeight = Math.max(
           iDoc.documentElement.scrollHeight,
           iDoc.body.scrollHeight,
@@ -644,14 +613,12 @@ async function renderAndCapture(html, width, scale) {
         log(`页面尺寸: ${width}×${fullHeight}px`, 'info');
         setProgress(55, `页面 ${width}×${fullHeight}px，渲染中...`, 'running');
 
-        // Wait configured extra time
         const waitSec = parseInt(document.getElementById('waitInput').value) || 3;
         if (waitSec > 0) {
           log(`额外等待 ${waitSec}s 确保渲染完成...`, 'info');
           await sleep(waitSec * 1000);
         }
 
-        // Scroll to trigger lazy loading
         setProgress(65, '滚动触发懒加载...', 'running');
         const steps = 15;
         for (let i = 0; i <= steps; i++) {
@@ -666,14 +633,10 @@ async function renderAndCapture(html, width, scale) {
         setProgress(75, 'html2canvas 截图渲染中...', 'running');
         log('html2canvas 开始渲染...', 'info');
 
-        // Set iframe dimensions for html2canvas
         iframe.style.width = width + 'px';
         iframe.style.height = fullHeight + 'px';
-
-        // Wait a frame for layout
         await sleep(300);
 
-        // Capture with html2canvas on the iframe
         const canvas = await html2canvas(iDoc.body, {
           width: width,
           height: fullHeight,
@@ -683,7 +646,6 @@ async function renderAndCapture(html, width, scale) {
           logging: false,
           windowWidth: width,
           windowHeight: fullHeight,
-          onclone: () => {},
         });
 
         clearTimeout(timeout);
@@ -742,7 +704,7 @@ async function startCapture() {
   setProgress(5, '初始化...', 'running');
 
   try {
-    // Step 1: Check backend server is alive (local dev only)
+    // Step 1: Check backend server
     setProgress(5, '连接后端服务...', 'running');
     log('连接后端服务...', 'info');
     let serverOk = false;
@@ -751,7 +713,6 @@ async function startCapture() {
       serverOk = healthResp.ok;
     } catch {}
     if (!serverOk) {
-      // On Vercel/GitHub there's no /api/health, try proxy directly
       log('未检测到 /api/health（Vercel 环境跳过此检查）', 'warn');
     } else {
       log('✓ 后端服务器连接正常', 'success');
@@ -762,7 +723,7 @@ async function startCapture() {
     // Step 2: Fetch page HTML via backend proxy
     setProgress(15, '通过后端代理获取页面...', 'running');
 
-    const html = await fetchViaBackend(url);
+    let html = await fetchViaBackend(url);
 
     if (!html) {
       throw new Error(
@@ -777,16 +738,16 @@ async function startCapture() {
 
     if (S.cancelled) { cleanup(); return; }
 
-    // Step 2: Prepare HTML with base tag
+    // Step 3: Prepare HTML with base tag
     setProgress(25, '处理页面内容...', 'running');
     html = prepareHtml(html, url);
 
-    // Step 3: Render in iframe sandbox and capture
+    // Step 4: Render in iframe sandbox and capture
     const canvas = await renderAndCapture(html, vw, scale);
 
     if (S.cancelled || !canvas) { cleanup(); return; }
 
-    // Step 4: Generate output
+    // Step 5: Generate output
     setProgress(80, '生成输出文件...', 'running');
     log('生成输出文件...', 'info');
 
@@ -849,12 +810,10 @@ async function startCapture() {
     S.fileName = defaultFileName();
     S.dims = `${dimStr}  ·  ${sz.toFixed(1)} MB`;
 
-    // Show preview
     document.getElementById('previewImg').src = imgData;
     document.getElementById('previewDim').textContent = dimStr;
     document.getElementById('previewSection').classList.remove('hidden');
 
-    // Show success
     document.getElementById('modalFileName').textContent = S.fileName;
     document.getElementById('modalDims').textContent = S.dims;
     document.getElementById('successModal').classList.add('show');
@@ -875,12 +834,10 @@ async function startCapture() {
 }
 
 function cleanup() {
-  S.running = false;
-  S.cancelled = false;
+  S.running = false; S.cancelled = false;
   document.getElementById('startBtn').disabled = false;
 }
 
-// ── Cancel ─────────────────────────────────────────────
 function cancelCapture() {
   if (S.running) {
     S.cancelled = true;
@@ -891,7 +848,6 @@ function cancelCapture() {
   }
 }
 
-// ── Modal ──────────────────────────────────────────────
 function closeModal() { document.getElementById('successModal').classList.remove('show'); }
 document.getElementById('successModal').addEventListener('click', function(e) { if (e.target===this) closeModal(); });
 
@@ -905,7 +861,6 @@ function downloadScreenshot() {
   closeModal();
 }
 
-// ── Clear ──────────────────────────────────────────────
 function clearAll() {
   document.getElementById('urlInput').value = 'https://www.baidu.com';
   document.getElementById('vwInput').value = '1280';
@@ -924,14 +879,12 @@ function clearAll() {
   document.getElementById('startBtn').disabled = false;
 }
 
-// ── Utility ────────────────────────────────────────────
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── Init ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   log('WebSnap Pro v2.0 已加载', 'accent');
   log('输入网址 → 点击"开始截图" → 自动下载', 'info');
-  log('使用代理服务获取页面内容，支持 PNG/JPG/PDF', 'dim');
+  log('使用后端代理获取页面内容，支持 PNG/JPG/PDF', 'dim');
 });
 </script>
 </body>
