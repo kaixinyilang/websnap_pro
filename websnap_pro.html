@@ -474,6 +474,28 @@
   </div>
 </div>
 
+<!-- ===================== Captcha Interactive Modal ===================== -->
+<div id="captchaModal" class="modal-overlay">
+  <div class="modal-box" style="max-width:90vw; width:auto; min-width:420px;">
+    <div class="text-2xl mb-2">🔐</div>
+    <h3 class="text-lg font-bold text-white mb-1">检测到验证页面</h3>
+    <p class="text-sm text-gray-400 mb-4">请在下方截图上拖动滑块完成验证</p>
+    <div id="captchaImgWrap" style="max-height:50vh; overflow:auto; border:1px solid #2a3050; border-radius:8px; position:relative; cursor:crosshair;">
+      <img id="captchaImg" src="" alt="验证页面" style="width:100%; display:block; pointer-events:none;">
+      <div id="dragLine"
+           style="position:absolute; left:0; top:0; height:3px; background:#f59e0b;
+                  display:none; pointer-events:none; opacity:0.8; border-radius:2px;"></div>
+    </div>
+    <p id="captchaHint" class="text-xs text-amber-400 mt-2">🖱 在滑块位置从左向右横划一条线（点击起点 → 拖到终点 → 松手）</p>
+    <div class="flex justify-center gap-3 flex-wrap mt-4">
+      <button class="btn-primary text-sm px-5 py-2.5" onclick="captchaFinish()">
+        完成验证，开始截图
+      </button>
+      <button class="btn-secondary text-sm" onclick="captchaClose()">放弃</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== Hidden iframe for proxy rendering ===================== -->
 <div id="snapWrapper">
   <iframe id="snapIframe" sandbox="allow-same-origin allow-scripts"></iframe>
@@ -583,14 +605,9 @@ async function fetchViaBackend(url) {
 // ── Capture via Playwright backend ─────────────────
 async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode) {
   const baseUrl = document.getElementById('playwrightUrl').value.trim().replace(/\/$/, '');
-  if (!baseUrl) {
-    log('请先填写 Playwright 后端地址', 'error');
-    return null;
-  }
-
+  if (!baseUrl) { log('请先填写 Playwright 后端地址', 'error'); return null; }
   log(`连接 Playwright 引擎: ${baseUrl}`, 'info');
 
-  // 健康检查（延长超时，Render 冷启动可能较慢）
   try {
     const h = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(15000) });
     const hd = await h.json();
@@ -598,7 +615,7 @@ async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode)
     log(`✓ Playwright 引擎连接成功`, 'success');
   } catch (e) {
     if (e.name === 'TimeoutError' || e.name === 'AbortError') {
-      log(`⚠ Playwright 引擎响应较慢（可能正在冷启动），继续尝试...`, 'warn');
+      log(`⚠ Playwright 引擎响应较慢，继续尝试...`, 'warn');
     } else {
       log(`✗ 无法连接 Playwright 后端: ${e.message}`, 'error');
       return null;
@@ -606,25 +623,47 @@ async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode)
   }
 
   if (S.cancelled) return null;
-
   log('发送截图请求到 Playwright 引擎...', 'info');
   setProgress(30, 'Playwright 正在渲染页面...', 'running');
 
+  // 保存参数供后续交互使用
+  S._pwBaseUrl = baseUrl;
+  S._pwUrl = url;
+  S._pwVw = vw; S._pwScale = scale; S._pwWait = wait;
+  S._pwFmt = fmt; S._pwQuality = quality; S._pwPdfMode = pdfMode;
+
+  return await _doCapture({ url, format: fmt, viewport_width: vw, scale, wait, quality, pdf_mode: pdfMode });
+}
+
+async function _doCapture(body, sessionId) {
+  const b = { ...body };
+  if (sessionId) b.session_id = sessionId;
+
   try {
-    const resp = await fetch(`${baseUrl}/api/capture`, {
+    const resp = await fetch(`${S._pwBaseUrl}/api/capture`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(120000),
-      body: JSON.stringify({
-        url: url,
-        format: fmt,
-        viewport_width: vw,
-        scale: scale,
-        wait: wait,
-        quality: quality,
-        pdf_mode: pdfMode,
-      }),
+      body: JSON.stringify(b),
     });
+
+    // ── 检测验证页 ──
+    const captcha = resp.headers.get('X-Captcha-Detected');
+    const sid = resp.headers.get('X-Session-Id');
+
+    if (captcha === 'true' && sid) {
+      const blob = await resp.blob();
+      const imgUrl = URL.createObjectURL(blob);
+      log(`⚠ 检测到验证页面，请在弹窗中手动滑动验证`, 'warn');
+      setProgress(25, '等待用户手动验证...', 'running');
+
+      // 保存当前会话 ID
+      S._captchaSessionId = sid;
+
+      // 显示交互弹窗
+      showCaptchaModal(imgUrl);
+      return null; // 不返回结果，等用户操作
+    }
 
     if (!resp.ok) {
       let detail = '';
@@ -634,22 +673,175 @@ async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode)
 
     const contentDisposition = resp.headers.get('Content-Disposition') || '';
     const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
-    const fileName = fileNameMatch ? fileNameMatch[1] : `screenshot_${Date.now()}.${fmt}`;
+    const fileName = fileNameMatch ? fileNameMatch[1] : `screenshot_${Date.now()}.${b.format || 'png'}`;
 
     setProgress(80, '接收截图数据...', 'running');
     const blob = await resp.blob();
     const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
-
     log(`✓ Playwright 截图完成 (${sizeMB} MB)`, 'success');
-
+    S._captchaSessionId = null;
     return { blob, fileName, sizeMB };
   } catch (e) {
     log(`Playwright 截图失败: ${e.message}`, 'error');
     if (e.name === 'TimeoutError' || e.name === 'AbortError') {
-      log('  请求超时（120s），页面可能过大或后端负载过高', 'warn');
+      log('  请求超时，页面可能过大或后端负载过高', 'warn');
     }
+    S._captchaSessionId = null;
+    captchaClose();
     return null;
   }
+}
+
+// ── Captcha Interactive ──────────────────────────────
+
+function showCaptchaModal(imgUrl) {
+  const img = document.getElementById('captchaImg');
+  const wrap = document.getElementById('captchaImgWrap');
+  img.src = imgUrl;
+  document.getElementById('captchaModal').classList.add('show');
+  document.getElementById('captchaHint').textContent = '🖱 在滑块位置从左向右横划一条线';
+
+  // 拖拽状态
+  let dragging = false, startX = 0, startY = 0;
+
+  wrap.onmousedown = (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const scaleX = img.naturalWidth / rect.width;
+    const scaleY = img.naturalHeight / rect.height;
+    startX = (e.clientX - rect.left) * scaleX;
+    startY = (e.clientY - rect.top) * scaleY;
+    dragging = true;
+
+    const line = document.getElementById('dragLine');
+    line.style.display = 'none';
+    line.style.width = '0px';
+  };
+
+  wrap.onmousemove = (e) => {
+    if (!dragging) return;
+    const rect = wrap.getBoundingClientRect();
+    const scaleX = img.naturalWidth / rect.width;
+    const curX = (e.clientX - rect.left) * scaleX;
+    const curY = (e.clientY - rect.top) * scaleY;
+    const line = document.getElementById('dragLine');
+    line.style.display = 'block';
+    line.style.left = (startX / img.naturalWidth * rect.width) + 'px';
+    line.style.top = (startY / img.naturalHeight * rect.height) + 'px';
+    line.style.width = Math.max(2, (curX - startX) / img.naturalWidth * rect.width) + 'px';
+
+    // 显示预览
+    document.getElementById('captchaHint').textContent =
+      `拖动距离: ${Math.round(curX - startX)}px  起点:(${Math.round(startX)},${Math.round(startY)}) → 终点:(${Math.round(curX)},${Math.round(curY)})`;
+  };
+
+  wrap.onmouseup = async (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const rect = wrap.getBoundingClientRect();
+    const scaleX = img.naturalWidth / rect.width;
+    const scaleY = img.naturalHeight / rect.height;
+    const endX = (e.clientX - rect.left) * scaleX;
+    const endY = (e.clientY - rect.top) * scaleY;
+    const line = document.getElementById('dragLine');
+    line.style.display = 'none';
+
+    if (Math.abs(endX - startX) < 5) return; // 忽略误触
+
+    log(`发送拖拽操作: (${Math.round(startX)},${Math.round(startY)}) → (${Math.round(endX)},${Math.round(endY)})`, 'info');
+    document.getElementById('captchaHint').textContent = '⏳ 正在执行拖拽...';
+    setProgress(30, '执行拖拽验证...', 'running');
+
+    // 发送拖拽到后端
+    const result = await _doCapture({
+      format: S._pwFmt, viewport_width: S._pwVw, scale: S._pwScale,
+      wait: S._pwWait, quality: S._pwQuality, pdf_mode: S._pwPdfMode,
+      action: "drag", start_x: Math.round(startX), start_y: Math.round(startY),
+      end_x: Math.round(endX), end_y: Math.round(endY),
+    }, S._captchaSessionId);
+
+    if (result) {
+      // 验证通过，完成截图
+      captchaClose();
+      S.screenshotBlob = result.blob;
+      S.fileName = result.fileName;
+      S.dims = `${result.sizeMB} MB`;
+      if (S._pwFmt === 'png' || S._pwFmt === 'jpg') {
+        const previewUrl = URL.createObjectURL(result.blob);
+        document.getElementById('previewImg').src = previewUrl;
+        document.getElementById('previewDim').textContent = result.dims;
+        document.getElementById('previewSection').classList.remove('hidden');
+      }
+      setProgress(100, `完成！${result.sizeMB} MB`, 'done');
+      log(`✓ 保存成功：${result.fileName}`, 'success');
+      document.getElementById('successModal').classList.add('show');
+      document.getElementById('modalFileName').textContent = result.fileName;
+      document.getElementById('modalDims').textContent = result.dims;
+      S.running = false;
+      document.getElementById('startBtn').disabled = false;
+    } else {
+      // 可能还是验证页，刷新截图
+      try {
+        const chkResp = await fetch(`${S._pwBaseUrl}/api/capture`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(30000),
+          body: JSON.stringify({ session_id: S._captchaSessionId, action: "drag",
+            start_x: Math.round(startX), start_y: Math.round(startY),
+            end_x: Math.round(endX), end_y: Math.round(endY) }),
+        });
+        const imgBlob = await resp.blob();
+        const newUrl = URL.createObjectURL(imgBlob);
+        document.getElementById('captchaImg').src = newUrl;
+        document.getElementById('captchaHint').textContent = '🖱 再试一次，在滑块位置从左向右横划';
+        setProgress(25, '等待用户手动验证...', 'running');
+      } catch {
+        document.getElementById('captchaHint').textContent = '拖拽执行失败，请重试';
+      }
+    }
+  };
+
+  wrap.onmouseleave = () => { if (dragging) { dragging = false; document.getElementById('dragLine').style.display = 'none'; } };
+}
+
+async function captchaFinish() {
+  const sid = S._captchaSessionId;
+  if (!sid) { captchaClose(); return; }
+  log('用户确认，执行最终截图...', 'info');
+  setProgress(50, 'Playwright 正在渲染最终截图...', 'running');
+
+  const result = await _doCapture({
+    format: S._pwFmt, viewport_width: S._pwVw, scale: S._pwScale,
+    wait: S._pwWait, quality: S._pwQuality, pdf_mode: S._pwPdfMode,
+    action: "finish",
+  }, sid);
+
+  captchaClose();
+
+  if (result) {
+    S.screenshotBlob = result.blob;
+    S.fileName = result.fileName;
+    S.dims = `${result.sizeMB} MB`;
+    if (S._pwFmt === 'png' || S._pwFmt === 'jpg') {
+      document.getElementById('previewImg').src = URL.createObjectURL(result.blob);
+      document.getElementById('previewDim').textContent = result.dims;
+      document.getElementById('previewSection').classList.remove('hidden');
+    }
+    setProgress(100, `完成！${result.sizeMB} MB`, 'done');
+    log(`✓ 保存成功：${result.fileName}`, 'success');
+    document.getElementById('successModal').classList.add('show');
+    document.getElementById('modalFileName').textContent = result.fileName;
+    document.getElementById('modalDims').textContent = result.dims;
+  }
+  S.running = false;
+  document.getElementById('startBtn').disabled = false;
+}
+
+function captchaClose() {
+  document.getElementById('captchaModal').classList.remove('show');
+  S._captchaSessionId = null;
+  if (S.running) { S.running = false; document.getElementById('startBtn').disabled = false; }
+  setProgress(0, '截图取消', 'warn');
+  log('用户放弃验证', 'warn');
 }
 
 // ── Detect captcha / verification pages ─────────────
@@ -845,6 +1037,8 @@ async function startCapture() {
     const result = await captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode);
 
     if (!result) {
+      // null 可能是等待用户验证（弹窗已打开），不标记失败
+      if (S._captchaSessionId) return;
       setProgress(0, 'Playwright 截图失败', 'error');
       S.running = false;
       document.getElementById('startBtn').disabled = false;
