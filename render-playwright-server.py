@@ -105,36 +105,18 @@ def normalize_url(raw: str) -> str:
 # ── Chromium 启动 ────────────────────────────────────────
 
 async def find_chromium():
-    """在 Render/Railway 环境中查找 Chromium — 优先用完整的 chrome 而非 headless-shell"""
-    import glob
+    """递归搜索 ms-playwright 目录下所有 chrome/chromium 可执行文件"""
+    import glob, os
 
-    # 按优先级：完整 chrome > headless-shell > 系统安装
-    full_patterns = [
-        "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
-        "/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
-        "/home/*/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
-    ]
-    shell_patterns = [
-        "/opt/render/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
-        "/root/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
-        "/home/*/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
-    ]
-    system = [
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/google-chrome",
-    ]
+    # 递归搜索
+    candidates = glob.glob("/opt/render/.cache/ms-playwright/**/chrome", recursive=True)
+    candidates += glob.glob("/opt/render/.cache/ms-playwright/**/chromium", recursive=True)
+    candidates += glob.glob("/opt/render/.cache/ms-playwright/**/chrome-headless-shell", recursive=True)
+    # 系统路径
+    candidates += ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]
 
-    for pat in full_patterns:
-        hits = glob.glob(pat)
-        if hits:
-            return hits[0]
-    for pat in shell_patterns:
-        hits = glob.glob(pat)
-        if hits:
-            return hits[0]
-    for c in system:
-        if Path(c).exists():
+    for c in candidates:
+        if c and Path(c).exists() and os.access(c, os.X_OK):
             return c
     return None
 
@@ -165,7 +147,10 @@ async def capture_async(url, vw, scale, wait):
             args=CHROMIUM_ARGS,
         )
 
-        # 让 Playwright 自动管理浏览器
+        # 递归搜索 Chrome 路径
+        exe = await find_chromium()
+        if exe:
+            launch_kwargs["executable_path"] = exe
         browser = await p.chromium.launch(**launch_kwargs)
 
         # ── 创建上下文 ──
