@@ -165,10 +165,8 @@ async def capture_async(url, vw, scale, wait):
             args=CHROMIUM_ARGS,
         )
 
-        # 优先手动搜索 Chrome 二进制，找到后直接指定路径
-        exe = await find_chromium()
-        if exe:
-            launch_kwargs["executable_path"] = exe
+        # 使用系统 Chromium（apt-get install chromium-browser）
+        launch_kwargs["channel"] = "chromium"
         browser = await p.chromium.launch(**launch_kwargs)
 
         # ── 创建上下文 ──
