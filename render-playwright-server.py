@@ -25,7 +25,7 @@ WebSnap Pro — Playwright 专业截图引擎（部署到 Render / Railway）
 import os, re, sys, asyncio, tempfile, traceback
 from pathlib import Path
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -327,7 +327,7 @@ async def health():
     return {
         "status": "ok",
         "engine": "playwright",
-        "time": datetime.now(datetime.UTC).isoformat(),
+        "time": datetime.now(timezone.utc).isoformat(),
     }
 
 
