@@ -686,9 +686,7 @@ async function _doCapture(body, sessionId) {
     if (e.name === 'TimeoutError' || e.name === 'AbortError') {
       log('  请求超时，页面可能过大或后端负载过高', 'warn');
     }
-    S._captchaSessionId = null;
-    captchaClose();
-    return null;
+    return { _error: true, _msg: e.message };
   }
 }
 
@@ -759,7 +757,13 @@ function showCaptchaModal(imgUrl) {
       end_x: Math.round(endX), end_y: Math.round(endY),
     }, S._captchaSessionId);
 
-    if (result) {
+    if (result && result._error) {
+      // 请求失败，保持弹窗打开
+      document.getElementById('captchaHint').textContent = '执行失败: ' + result._msg + '，请重试';
+      return;
+    }
+
+    if (result && result.blob) {
       // 验证通过，完成截图
       captchaClose();
       S.screenshotBlob = result.blob;
@@ -815,9 +819,15 @@ async function captchaFinish() {
     action: "finish",
   }, sid);
 
+  if (result && result._error) {
+    log(`截图失败: ${result._msg}`, 'error');
+    captchaClose();
+    return;
+  }
+
   captchaClose();
 
-  if (result) {
+  if (result && result.blob) {
     S.screenshotBlob = result.blob;
     S.fileName = result.fileName;
     S.dims = `${result.sizeMB} MB`;
