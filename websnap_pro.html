@@ -706,112 +706,88 @@ function showCaptchaModal(imgUrl) {
   document.getElementById('captchaModal').classList.add('show');
   document.getElementById('captchaHint').textContent = '🖱 在滑块位置从左向右横划一条线';
 
-  // 拖拽状态
+  // 拖拽状态（绑定在 document 上，防止拖出范围断触）
   let dragging = false, startX = 0, startY = 0;
+  let _docMove, _docUp;
 
   wrap.onmousedown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     const rect = wrap.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const scaleY = img.naturalHeight / rect.height;
-    startX = (e.clientX - rect.left) * scaleX;
-    startY = (e.clientY - rect.top) * scaleY;
+    startX = (e.clientX - rect.left) * img.naturalWidth / rect.width;
+    startY = (e.clientY - rect.top) * img.naturalHeight / rect.height;
     dragging = true;
 
     const line = document.getElementById('dragLine');
     line.style.display = 'none';
-    line.style.width = '0px';
-  };
 
-  wrap.onmousemove = (e) => {
-    if (!dragging) return;
-    const rect = wrap.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const curX = (e.clientX - rect.left) * scaleX;
-    const curY = (e.clientY - rect.top) * scaleY;
-    const line = document.getElementById('dragLine');
-    line.style.display = 'block';
-    line.style.left = (startX / img.naturalWidth * rect.width) + 'px';
-    line.style.top = (startY / img.naturalHeight * rect.height) + 'px';
-    line.style.width = Math.max(2, (curX - startX) / img.naturalWidth * rect.width) + 'px';
+    _docMove = (ev) => {
+      if (!dragging) return;
+      const r = wrap.getBoundingClientRect();
+      const curX = (ev.clientX - r.left) * img.naturalWidth / r.width;
+      const curY = (ev.clientY - r.top) * img.naturalHeight / r.height;
+      const line = document.getElementById('dragLine');
+      line.style.display = 'block';
+      line.style.left = (startX / img.naturalWidth * r.width) + 'px';
+      line.style.top = (startY / img.naturalHeight * r.height) + 'px';
+      line.style.width = Math.max(3, (curX - startX) / img.naturalWidth * r.width) + 'px';
+      document.getElementById('captchaHint').textContent =
+        `拖动距离: ${Math.round(curX - startX)}px  起点:(${Math.round(startX)},${Math.round(startY)}) → 终点:(${Math.round(curX)},${Math.round(curY)})`;
+    };
 
-    // 显示预览
-    document.getElementById('captchaHint').textContent =
-      `拖动距离: ${Math.round(curX - startX)}px  起点:(${Math.round(startX)},${Math.round(startY)}) → 终点:(${Math.round(curX)},${Math.round(curY)})`;
-  };
+    _docUp = async (ev) => {
+      if (!dragging) return;
+      dragging = false;
+      document.removeEventListener('mousemove', _docMove);
+      document.removeEventListener('mouseup', _docUp);
+      document.getElementById('dragLine').style.display = 'none';
 
-  wrap.onmouseup = async (e) => {
-    if (!dragging) return;
-    dragging = false;
-    const rect = wrap.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const scaleY = img.naturalHeight / rect.height;
-    const endX = (e.clientX - rect.left) * scaleX;
-    const endY = (e.clientY - rect.top) * scaleY;
-    const line = document.getElementById('dragLine');
-    line.style.display = 'none';
+      const r = wrap.getBoundingClientRect();
+      const endX = (ev.clientX - r.left) * img.naturalWidth / r.width;
+      const endY = (ev.clientY - r.top) * img.naturalHeight / r.height;
 
-    if (Math.abs(endX - startX) < 5) return; // 忽略误触
+      if (Math.abs(endX - startX) < 5) return;
 
-    log(`发送拖拽操作: (${Math.round(startX)},${Math.round(startY)}) → (${Math.round(endX)},${Math.round(endY)})`, 'info');
-    document.getElementById('captchaHint').textContent = '⏳ 正在执行拖拽...';
-    setProgress(30, '执行拖拽验证...', 'running');
+      log(`发送拖拽: (${Math.round(startX)},${Math.round(startY)}) → (${Math.round(endX)},${Math.round(endY)})`, 'info');
+      document.getElementById('captchaHint').textContent = '⏳ 正在执行拖拽...';
+      setProgress(30, '执行拖拽验证...', 'running');
 
-    // 发送拖拽到后端
-    const result = await _doCapture({
-      format: S._pwFmt, viewport_width: S._pwVw, scale: S._pwScale,
-      wait: S._pwWait, quality: S._pwQuality, pdf_mode: S._pwPdfMode,
-      action: "drag", start_x: Math.round(startX), start_y: Math.round(startY),
-      end_x: Math.round(endX), end_y: Math.round(endY),
-    }, S._captchaSessionId);
+      const result = await _doCapture({
+        format: S._pwFmt, viewport_width: S._pwVw, scale: S._pwScale,
+        wait: S._pwWait, quality: S._pwQuality, pdf_mode: S._pwPdfMode,
+        action: "drag", start_x: Math.round(startX), start_y: Math.round(startY),
+        end_x: Math.round(endX), end_y: Math.round(endY),
+      }, S._captchaSessionId);
 
-    if (result && result._error) {
-      // 请求失败，保持弹窗打开
-      document.getElementById('captchaHint').textContent = '执行失败: ' + result._msg + '，请重试';
-      return;
-    }
-
-    if (result && result.blob) {
-      // 验证通过，完成截图
-      captchaClose();
-      S.screenshotBlob = result.blob;
-      S.fileName = result.fileName;
-      S.dims = `${result.sizeMB} MB`;
-      if (S._pwFmt === 'png' || S._pwFmt === 'jpg') {
-        const previewUrl = URL.createObjectURL(result.blob);
-        document.getElementById('previewImg').src = previewUrl;
-        document.getElementById('previewDim').textContent = result.dims;
-        document.getElementById('previewSection').classList.remove('hidden');
+      if (result && result._error) {
+        document.getElementById('captchaHint').textContent = '执行失败: ' + result._msg + '，请重试';
+        return;
       }
-      setProgress(100, `完成！${result.sizeMB} MB`, 'done');
-      log(`✓ 保存成功：${result.fileName}`, 'success');
-      document.getElementById('successModal').classList.add('show');
-      document.getElementById('modalFileName').textContent = result.fileName;
-      document.getElementById('modalDims').textContent = result.dims;
-      S.running = false;
-      document.getElementById('startBtn').disabled = false;
-    } else {
-      // 可能还是验证页，刷新截图
-      try {
-        const chkResp = await fetch(`${S._pwBaseUrl}/api/capture`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(30000),
-          body: JSON.stringify({ session_id: S._captchaSessionId, action: "drag",
-            start_x: Math.round(startX), start_y: Math.round(startY),
-            end_x: Math.round(endX), end_y: Math.round(endY) }),
-        });
-        const imgBlob = await resp.blob();
-        const newUrl = URL.createObjectURL(imgBlob);
-        document.getElementById('captchaImg').src = newUrl;
+
+      if (result && result.blob) {
+        captchaClose();
+        S.screenshotBlob = result.blob; S.fileName = result.fileName; S.dims = result.sizeMB + ' MB';
+        if (S._pwFmt === 'png' || S._pwFmt === 'jpg') {
+          document.getElementById('previewImg').src = URL.createObjectURL(result.blob);
+          document.getElementById('previewDim').textContent = result.dims;
+          document.getElementById('previewSection').classList.remove('hidden');
+        }
+        setProgress(100, '完成！' + result.sizeMB + ' MB', 'done');
+        log('✓ 保存成功：' + result.fileName, 'success');
+        document.getElementById('successModal').classList.add('show');
+        document.getElementById('modalFileName').textContent = result.fileName;
+        document.getElementById('modalDims').textContent = result.dims;
+        S.running = false;
+        document.getElementById('startBtn').disabled = false;
+      } else {
         document.getElementById('captchaHint').textContent = '🖱 再试一次，在滑块位置从左向右横划';
         setProgress(25, '等待用户手动验证...', 'running');
-      } catch {
-        document.getElementById('captchaHint').textContent = '拖拽执行失败，请重试';
       }
-    }
-  };
+    };
 
-  wrap.onmouseleave = () => { if (dragging) { dragging = false; document.getElementById('dragLine').style.display = 'none'; } };
+    document.addEventListener('mousemove', _docMove);
+    document.addEventListener('mouseup', _docUp);
+  };
 }
 
 async function captchaFinish() {
