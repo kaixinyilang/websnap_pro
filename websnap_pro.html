@@ -590,16 +590,19 @@ async function captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode)
 
   log(`连接 Playwright 引擎: ${baseUrl}`, 'info');
 
-  // 健康检查
+  // 健康检查（延长超时，Render 冷启动可能较慢）
   try {
-    const h = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(5000) });
+    const h = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(15000) });
     const hd = await h.json();
     if (hd.status !== 'ok') throw Error('not ok');
     log(`✓ Playwright 引擎连接成功`, 'success');
   } catch (e) {
-    log(`✗ 无法连接 Playwright 后端: ${e.message}`, 'error');
-    log(`  请确认后端已启动或地址是否正确`, 'warn');
-    return null;
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      log(`⚠ Playwright 引擎响应较慢（可能正在冷启动），继续尝试...`, 'warn');
+    } else {
+      log(`✗ 无法连接 Playwright 后端: ${e.message}`, 'error');
+      return null;
+    }
   }
 
   if (S.cancelled) return null;
