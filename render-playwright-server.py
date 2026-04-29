@@ -105,21 +105,36 @@ def normalize_url(raw: str) -> str:
 # ── Chromium 启动 ────────────────────────────────────────
 
 async def find_chromium():
-    """在 Render/Railway 环境中查找 Chromium"""
+    """在 Render/Railway 环境中查找 Chromium — 优先用完整的 chrome 而非 headless-shell"""
     import glob
-    candidates = [
-        # Playwright 安装的
-        *glob.glob("/home/*/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"),
-        *glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"),
-        *glob.glob("/home/*/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell"),
-        *glob.glob("/root/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell"),
-        # 系统安装的
+
+    # 按优先级：完整 chrome > headless-shell > 系统安装
+    full_patterns = [
+        "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
+        "/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
+        "/home/*/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
+    ]
+    shell_patterns = [
+        "/opt/render/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
+        "/root/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
+        "/home/*/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
+    ]
+    system = [
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
     ]
-    for c in candidates:
-        if c and Path(c).exists():
+
+    for pat in full_patterns:
+        hits = glob.glob(pat)
+        if hits:
+            return hits[0]
+    for pat in shell_patterns:
+        hits = glob.glob(pat)
+        if hits:
+            return hits[0]
+    for c in system:
+        if Path(c).exists():
             return c
     return None
 
