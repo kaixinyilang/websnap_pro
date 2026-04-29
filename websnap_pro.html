@@ -145,6 +145,22 @@
     ::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #3a4060; }
 
+    /* 浏览器预览区域 */
+    #browserPreview {
+      width: 100%; min-height: 400px; background: #fff;
+      border: 1px solid #2a3050; border-radius: 10px; overflow: hidden;
+      position: relative; display: none;
+    }
+    #browserPreview.show { display: block; }
+    #browserFrame {
+      width: 100%; height: 60vh; border: none; display: block;
+      background: #fff;
+    }
+    #browserPlaceholder {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: #4a5578; font-size: 0.9rem;
+    }
+
     @media (max-width: 640px) {
       .fmt-btn { min-width: 90px; padding: 0.5rem 1rem; }
       .fmt-btn .main { font-size: 0.9rem; }
@@ -175,24 +191,12 @@
 </nav>
 
 <!-- ===================== Hero Header ===================== -->
-<header class="gradient-hero pt-24 pb-10 border-b border-indigo-900/20">
+<header class="gradient-hero pt-20 pb-6 border-b border-indigo-900/20">
   <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center">
-    <div class="inline-flex items-center gap-2 bg-indigo-500/10 rounded-full px-4 py-1.5 mb-5 border border-indigo-500/20">
-      <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-      <span class="text-indigo-300 text-xs">html2canvas 引擎 · 纯前端截图</span>
-    </div>
-    <h1 class="text-3xl sm:text-4xl lg:text-5xl font-black text-white mb-4 leading-tight">
-      <span class="block">通用网页全页截图工具</span>
-      <span class="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent text-2xl sm:text-3xl lg:text-4xl mt-2 block">
-        PNG · JPG · PDF
-      </span>
+    <h1 class="text-2xl sm:text-3xl font-black text-white">
+      WebSnap <span class="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">Pro</span>
+      <span class="text-sm text-gray-500 ml-3 font-normal">通用网页截图 · PNG/JPG/PDF</span>
     </h1>
-    <p class="text-gray-400 max-w-lg mx-auto text-sm sm:text-base">
-      输入网址，一键截取完整网页，支持高清 Retina、多种输出格式
-    </p>
-    <div class="mt-4 inline-flex items-center gap-2 bg-amber-500/10 rounded-full px-4 py-1.5 border border-amber-500/20">
-      <span class="text-amber-400 text-xs">⚡ 本地: node server.js &nbsp;·&nbsp; 部署到 Vercel: 自动生效</span>
-    </div>
   </div>
 </header>
 
@@ -332,6 +336,14 @@
     </button>
     <button id="cancelBtn" class="btn-secondary" onclick="cancelCapture()">取消</button>
     <button id="clearBtn" class="btn-secondary text-xs ml-auto" onclick="clearAll()">清空重置</button>
+  </section>
+
+  <!-- --- Browser Preview --- -->
+  <section id="browserPreview">
+    <iframe id="browserFrame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+    <div id="browserPlaceholder">
+      <span>输入网址，点击"开始截图"后将在此显示页面预览</span>
+    </div>
   </section>
 
   <!-- --- Progress --- -->
@@ -879,7 +891,7 @@ function prepareHtml(html, originalUrl) {
 
 // ── Render HTML in iframe & capture ────────────────────
 async function renderAndCapture(html, width, scale) {
-  const iframe = document.getElementById('snapIframe');
+  const iframe = document.getElementById('browserFrame');
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('页面渲染超时 (45s)')), 45000);
@@ -1018,6 +1030,13 @@ async function startCapture() {
   document.getElementById('startBtn').disabled = true;
   document.getElementById('previewSection').classList.add('hidden');
 
+  // 显示浏览器预览区域
+  const browserPrev = document.getElementById('browserPreview');
+  const browserFrame = document.getElementById('browserFrame');
+  browserPrev.classList.add('show');
+  document.getElementById('browserPlaceholder').style.display = 'none';
+  browserFrame.style.display = 'block';
+
   log(`═══ 开始截图 ═══`, 'accent');
   log(`网址: ${url}`, 'info');
   log(`格式:${fmt.toUpperCase()}  宽:${vw}px  等待:${wait}s  倍数:×${scale}`, 'dim');
@@ -1027,10 +1046,12 @@ async function startCapture() {
   if (S.engine === 'playwright') {
     log(`使用 Playwright 真实浏览器引擎`, 'accent');
 
-    // 打开新窗口让用户直观看到页面
-    log(`在新窗口打开页面，请在那边完成验证`, 'info');
-    try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(e) {}
-    log(`同时 Playwright 引擎开始截图...`, 'info');
+    // 浏览器预览直接加载目标网址（跨域但用户可看到并交互）
+    log(`浏览器预览加载页面中...`, 'info');
+    browserFrame.src = url;
+    browserFrame.style.height = '60vh';
+
+    log(`Playwright 引擎开始后台截图...`, 'info');
 
     const result = await captureViaPlaywright(url, vw, scale, wait, fmt, quality, pdfMode);
 
@@ -1212,6 +1233,11 @@ async function startCapture() {
 function cleanup() {
   S.running = false; S.cancelled = false;
   document.getElementById('startBtn').disabled = false;
+  // 重置浏览器预览
+  document.getElementById('browserPreview').classList.remove('show');
+  document.getElementById('browserPlaceholder').style.display = 'flex';
+  document.getElementById('browserFrame').style.display = 'none';
+  document.getElementById('browserFrame').src = 'about:blank';
 }
 
 function cancelCapture() {
