@@ -29,6 +29,7 @@ from datetime import datetime
 
 try:
     from fastapi import FastAPI, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import Response
     from pydantic import BaseModel, HttpUrl
     import uvicorn
@@ -64,6 +65,15 @@ app = FastAPI(
     title="WebSnap Pro — Playwright Engine",
     description="真实浏览器渲染截图，支持 PNG / JPG / PDF",
     version="2.0.0",
+)
+
+# ── CORS（允许 Vercel 前端跨域调用） ─────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -317,7 +327,7 @@ async def health():
     return {
         "status": "ok",
         "engine": "playwright",
-        "time": datetime.utcnow().isoformat(),
+        "time": datetime.now(datetime.UTC).isoformat(),
     }
 
 
