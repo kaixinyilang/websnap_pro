@@ -165,8 +165,7 @@ async def capture_async(url, vw, scale, wait):
             args=CHROMIUM_ARGS,
         )
 
-        # 使用系统 Chromium（apt-get install chromium-browser）
-        launch_kwargs["channel"] = "chromium"
+        # 让 Playwright 自动管理浏览器
         browser = await p.chromium.launch(**launch_kwargs)
 
         # ── 创建上下文 ──
